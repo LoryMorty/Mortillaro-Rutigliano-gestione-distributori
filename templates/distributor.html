@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dettaglio Distributore</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-3">
+<h1>{{ distributore.nome }} - {{ distributore.provincia }}</h1>
+<p>Benzina: {{ distributore.benzina }} L</p>
+<p>Diesel: {{ distributore.diesel }} L</p>
+<p>Prezzo Benzina: {{ distributore.prezzo_benzina }} €/L</p>
+<p>Prezzo Diesel: {{ distributore.prezzo_diesel }} €/L</p>
+<hr>
+<h3>Cambia prezzi (provincia)</h3>
+<form id="price-form">
+<div class="mb-3">
+<label class="form-label">Prezzo benzina</label>
+<input type="number" step="0.01" min="0" name="benzina" class="form-control">
+</div>
+<div class="mb-3">
+<label class="form-label">Prezzo diesel</label>
+<input type="number" step="0.01" min="0" name="diesel" class="form-control">
+</div>
+<button class="btn btn-primary">Applica a tutta la provincia</button>
+</form>
+</div>
+<script>
+document.getElementById('price-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const benz = parseFloat(this.benzina.value) || null;
+    const des = parseFloat(this.diesel.value) || null;
+    const province = '{{ distributore.provincia }}';
+    const resp = await fetch(`/api/distributors/province/${province}/prices`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({benzina: benz, diesel: des})
+    });
+    const ret = await resp.json();
+    if(resp.ok){
+        alert('Prezzi aggiornati per ' + ret.updated + ' distributori in provincia ' + province);
+        location.reload();
+    } else {
+        alert('Errore: ' + JSON.stringify(ret));
+    }
+});
+</script>
+</body>
+</html>

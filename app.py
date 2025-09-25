@@ -11,10 +11,11 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev')
 # Connessione al DB MySQL
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv('MYSQL_HOST'),
-        user=os.getenv('MYSQL_USER'),
-        password=os.getenv('MYSQL_PASSWORD'),
-        database=os.getenv('MYSQL_DB')
+        host='mysql-221cedb1-iisgalvanimi-9701.j.aivencloud.com',
+        user= 'avnadmin',
+        password= 'AVNS_v5ZY1LueloCJza2Bkdd',
+        database= 'Gestione_Distributori',
+        port= 17424
     )
 
 # ==================== API ====================
@@ -114,6 +115,17 @@ def distributor(id):
     if not d:
         return "Distributore non trovato", 404
     return render_template('distributor.html', distributore=d)
+
+@app.route('/map')
+def map_view():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT id, nome, provincia, lat, lon FROM distributori WHERE lat IS NOT NULL AND lon IS NOT NULL")
+    distributori = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return render_template('map.html', distributori=distributori)
+
 
 if __name__ == '__main__':
     app.run(debug=True)

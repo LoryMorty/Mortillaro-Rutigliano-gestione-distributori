@@ -1,9 +1,10 @@
-from flask import Flask, jsonify, request, send_file, abort, render_template
+from flask import Flask, jsonify, request, abort, render_template
 from flask_cors import CORS
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from typing import List
 import threading
 
+# --- App Flask unica ---
 app = Flask(__name__)
 CORS(app)
 
@@ -43,8 +44,8 @@ class Distributore:
     prezzo_benzina: float
     prezzo_diesel: float
 
-    def to_dict(self, include_private: bool = False) -> dict:
-        base = {
+    def to_dict(self) -> dict:
+        return {
             "id": self.id,
             "nome": self.nome,
             "provincia": self.provincia,
@@ -55,10 +56,11 @@ class Distributore:
             "prezzo_diesel": self.prezzo_diesel,
             "livello_benzina": self.serbatoio_benzina.livello,
             "capacita_benzina": self.serbatoio_benzina.capacita,
+            "percent_benzina": self.serbatoio_benzina.percentuale(),
             "livello_diesel": self.serbatoio_diesel.livello,
             "capacita_diesel": self.serbatoio_diesel.capacita,
+            "percent_diesel": self.serbatoio_diesel.percentuale(),
         }
-        return base
 
     def set_prezzo(self, tipo: str, nuovo_prezzo: float):
         if nuovo_prezzo < 0:
@@ -70,6 +72,7 @@ class Distributore:
         else:
             raise ValueError("Tipo carburante sconosciuto")
 
+# --- Dati e lock per threading ---
 lock = threading.Lock()
 _distributori: List[Distributore] = [
     Distributore(
@@ -110,63 +113,40 @@ _distributori: List[Distributore] = [
     ),
 ]
 
-# Utility
 def find_by_id(did: int) -> Distributore:
     for d in _distributori:
         if d.id == did:
             return d
     return None
 
+# ---------- Web endpoint ----------
+@app.route('/')
+def homepage():
+    return render_template("index.html")
+
 # ---------- API Endpoints ----------
 @app.route('/api/distributori', methods=['GET'])
 def api_elenco_distributori():
-    """0. elenco ordinato su ID dei distributori (tutte le informazioni)"""
     with lock:
         ordinati = sorted(_distributori, key=lambda x: x.id)
         return jsonify([d.to_dict() for d in ordinati])
 
 @app.route('/api/distributori/provincia/<string:provincia>/livelli', methods=['GET'])
 def api_livelli_provincia(provincia):
-    """1. livello di carburante nei distributori di una provincia"""
     with lock:
         selezionati = [d for d in _distributori if d.provincia.lower() == provincia.lower()]
-        if not selezionati:
-            return jsonify([])
-        return jsonify([
-            {
-                "id": d.id,
-                "nome": d.nome,
-                "livello_benzina": d.serbatoio_benzina.livello,
-                "capacita_benzina": d.serbatoio_benzina.capacita,
-                "percent_benzina": d.serbatoio_benzina.percentuale(),
-                "livello_diesel": d.serbatoio_diesel.livello,
-                "capacita_diesel": d.serbatoio_diesel.capacita,
-                "percent_diesel": d.serbatoio_diesel.percentuale(),
-            }
-            for d in selezionati
-        ])
+        return jsonify([d.to_dict() for d in selezionati])
 
 @app.route('/api/distributori/<int:did>/livelli', methods=['GET'])
 def api_livelli_distributore(did):
-    """2. livello di carburante in un distributore specifico"""
     with lock:
         d = find_by_id(did)
         if d is None:
             abort(404, "Distributore non trovato")
-        return jsonify({
-            "id": d.id,
-            "nome": d.nome,
-            "livello_benzina": d.serbatoio_benzina.livello,
-            "capacita_benzina": d.serbatoio_benzina.capacita,
-            "percent_benzina": d.serbatoio_benzina.percentuale(),
-            "livello_diesel": d.serbatoio_diesel.livello,
-            "capacita_diesel": d.serbatoio_diesel.capacita,
-            "percent_diesel": d.serbatoio_diesel.percentuale(),
-        })
+        return jsonify(d.to_dict())
 
 @app.route('/api/distributori/map', methods=['GET'])
 def api_mappa_distributori():
-    """3. visualizzazione su mappa di tutti i distributori - ritorna i dati necessari"""
     with lock:
         return jsonify([
             {
@@ -183,9 +163,6 @@ def api_mappa_distributori():
 
 @app.route('/api/distributori/provincia/<string:provincia>/prezzi', methods=['PUT'])
 def api_cambia_prezzi_provincia(provincia):
-    """Modifica il prezzo della benzina o del diesel in tutti i distributori di una provincia.
-    JSON body: {"benzina": 1.95, "diesel": 1.85} (uno o entrambi)
-    """
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Richiesta JSON mancante"}), 400
@@ -194,14 +171,13 @@ def api_cambia_prezzi_provincia(provincia):
     if 'benzina' in data:
         try:
             nuovi_prezzi['benzina'] = float(data['benzina'])
-        except Exception:
+        except:
             return jsonify({"error": "Prezzo benzina non valido"}), 400
     if 'diesel' in data:
         try:
             nuovi_prezzi['diesel'] = float(data['diesel'])
-        except Exception:
+        except:
             return jsonify({"error": "Prezzo diesel non valido"}), 400
-
     if not nuovi_prezzi:
         return jsonify({"error": "Nessun prezzo fornito"}), 400
 
@@ -214,12 +190,7 @@ def api_cambia_prezzi_provincia(provincia):
                 if 'diesel' in nuovi_prezzi:
                     d.set_prezzo('diesel', nuovi_prezzi['diesel'])
                 aggiornati.append(d.id)
-
     return jsonify({"aggiornati": aggiornati})
 
-@app.route('/')
-def homepage():
-    return render_template("index.html")
-
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)

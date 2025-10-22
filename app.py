@@ -1,24 +1,26 @@
-from flask import Flask, jsonify, request, send_file, abort, render_template
-from flask_cors import CORS
-from dataclasses import dataclass, field, asdict
-from typing import List
-import threading
+from flask import Flask, jsonify, request, send_file, abort, render_template  # Import necessari per API e template
+from flask_cors import CORS  # Per abilitare CORS
+from dataclasses import dataclass, field, asdict  # Dataclass per modelli dati
+from typing import List  # Tipi
+import threading  # Lock per thread-safety
 
-app = Flask(__name__)
-CORS(app)
+app = Flask(__name__)  # Crea app Flask
+CORS(app)  # Abilita CORS
 
 # ---------- Domain classes ----------
 @dataclass
 class Serbatoio:
-    capacita: float
-    livello: float = 0.0
+    capacita: float  # Capacità massima (L)
+    livello: float = 0.0  # Livello attuale (L), default 0
 
     def aggiungi(self, quantita: float):
+        # Aumenta livello senza superare capacità; blocca quantità negative
         if quantita < 0:
             raise ValueError("quantita negativa")
         self.livello = min(self.capacita, self.livello + quantita)
 
     def preleva(self, quantita: float):
+        # Diminuisce livello se sufficiente; blocca quantità negative
         if quantita < 0:
             raise ValueError("quantita negativa")
         if quantita > self.livello:
@@ -26,24 +28,26 @@ class Serbatoio:
         self.livello -= quantita
 
     def percentuale(self) -> float:
+        # Percentuale riempimento (0..100)
         if self.capacita == 0:
             return 0.0
         return (self.livello / self.capacita) * 100.0
 
 @dataclass
 class Distributore:
-    id: int
-    nome: str
-    provincia: str
-    indirizzo: str
-    lat: float
-    lon: float
-    serbatoio_benzina: Serbatoio
-    serbatoio_diesel: Serbatoio
-    prezzo_benzina: float
-    prezzo_diesel: float
+    id: int  # ID univoco
+    nome: str  # Nome stazione
+    provincia: str  # Sigla provincia (es. MI)
+    indirizzo: str  # Indirizzo completo
+    lat: float  # Latitudine mappa
+    lon: float  # Longitudine mappa
+    serbatoio_benzina: Serbatoio  # Serbatoio benzina
+    serbatoio_diesel: Serbatoio  # Serbatoio diesel
+    prezzo_benzina: float  # Prezzo €/L benzina
+    prezzo_diesel: float  # Prezzo €/L diesel
 
     def to_dict(self, include_private: bool = False) -> dict:
+        # Serializza il distributore per output API (campi principali)
         base = {
             "id": self.id,
             "nome": self.nome,
@@ -58,9 +62,10 @@ class Distributore:
             "livello_diesel": self.serbatoio_diesel.livello,
             "capacita_diesel": self.serbatoio_diesel.capacita,
         }
-        return base
+        return base  # Ritorna i dati base (ignore include_private in questa implementazione)
 
     def set_prezzo(self, tipo: str, nuovo_prezzo: float):
+        # Imposta il prezzo in base al tipo di carburante con validazione
         if nuovo_prezzo < 0:
             raise ValueError("Prezzo negativo")
         if tipo == "benzina":
@@ -70,7 +75,9 @@ class Distributore:
         else:
             raise ValueError("Tipo carburante sconosciuto")
 
-lock = threading.Lock()
+lock = threading.Lock()  # Lock per gestire concorrenza su dati in-memory
+
+# Dataset in-memory di esempio
 _distributori: List[Distributore] = [
     Distributore(
         id=1,
@@ -112,6 +119,7 @@ _distributori: List[Distributore] = [
 
 # Utility
 def find_by_id(did: int) -> Distributore:
+    # Cerca e ritorna il distributore con id == did, altrimenti None
     for d in _distributori:
         if d.id == did:
             return d
@@ -121,6 +129,7 @@ def find_by_id(did: int) -> Distributore:
 @app.route('/api/distributori', methods=['GET'])
 def api_elenco_distributori():
     """0. elenco ordinato su ID dei distributori (tutte le informazioni)"""
+    # Ritorna la lista di distributori come JSON, ordinata per ID (asc)
     with lock:
         ordinati = sorted(_distributori, key=lambda x: x.id)
         return jsonify([d.to_dict() for d in ordinati])
@@ -128,10 +137,11 @@ def api_elenco_distributori():
 @app.route('/api/distributori/provincia/<string:provincia>/livelli', methods=['GET'])
 def api_livelli_provincia(provincia):
     """1. livello di carburante nei distributori di una provincia"""
+    # Filtra per provincia (case-insensitive) e ritorna livelli/percentuali
     with lock:
         selezionati = [d for d in _distributori if d.provincia.lower() == provincia.lower()]
         if not selezionati:
-            return jsonify([])
+            return jsonify([])  # Nessun distributore trovato per la provincia
         return jsonify([
             {
                 "id": d.id,
@@ -149,10 +159,11 @@ def api_livelli_provincia(provincia):
 @app.route('/api/distributori/<int:did>/livelli', methods=['GET'])
 def api_livelli_distributore(did):
     """2. livello di carburante in un distributore specifico"""
+    # Recupera un singolo distributore per ID e ritorna i livelli
     with lock:
         d = find_by_id(did)
         if d is None:
-            abort(404, "Distributore non trovato")
+            abort(404, "Distributore non trovato")  # 404 se non esiste
         return jsonify({
             "id": d.id,
             "nome": d.nome,
@@ -167,6 +178,7 @@ def api_livelli_distributore(did):
 @app.route('/api/distributori/map', methods=['GET'])
 def api_mappa_distributori():
     """3. visualizzazione su mappa di tutti i distributori - ritorna i dati necessari"""
+    # Endpoint ridotto per la mappa: coordinate, nomi e prezzi
     with lock:
         return jsonify([
             {
@@ -186,26 +198,27 @@ def api_cambia_prezzi_provincia(provincia):
     """Modifica il prezzo della benzina o del diesel in tutti i distributori di una provincia.
     JSON body: {"benzina": 1.95, "diesel": 1.85} (uno o entrambi)
     """
+    # Legge JSON dal body; silent=True evita eccezione se non JSON
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Richiesta JSON mancante"}), 400
+        return jsonify({"error": "Richiesta JSON mancante"}), 400  # Validazione base
 
     nuovi_prezzi = {}
     if 'benzina' in data:
         try:
             nuovi_prezzi['benzina'] = float(data['benzina'])
         except Exception:
-            return jsonify({"error": "Prezzo benzina non valido"}), 400
+            return jsonify({"error": "Prezzo benzina non valido"}), 400  # Valore non convertibile
     if 'diesel' in data:
         try:
             nuovi_prezzi['diesel'] = float(data['diesel'])
         except Exception:
-            return jsonify({"error": "Prezzo diesel non valido"}), 400
+            return jsonify({"error": "Prezzo diesel non valido"}), 400  # Valore non convertibile
 
     if not nuovi_prezzi:
-        return jsonify({"error": "Nessun prezzo fornito"}), 400
+        return jsonify({"error": "Nessun prezzo fornito"}), 400  # Nessun campo valido passato
 
-    aggiornati = []
+    aggiornati = []  # Lista ID distributori aggiornati
     with lock:
         for d in _distributori:
             if d.provincia.lower() == provincia.lower():
@@ -219,7 +232,9 @@ def api_cambia_prezzi_provincia(provincia):
 
 @app.route('/')
 def homepage():
+    # Ritorna il template index.html per la home web
     return render_template("index.html")
 
 if __name__ == '__main__':
+    # Avvia il web server (porta 5000) in debug
     app.run(host='0.0.0.0', port=5000, debug=True)

@@ -1,102 +1,174 @@
 <!doctype html>
+<!-- Dichiaro il tipo di documento HTML5 -->
 <html>
 <head>
   <meta charset="utf-8" />
+  <!-- Imposto codifica UTF-8 per supportare caratteri speciali -->
   <title>Monitor Distributori Iperstaroil</title>
+  <!-- Titolo della pagina visibile nella tab del browser -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Rende la pagina responsive sui dispositivi mobili -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Foglio di stile della libreria Leaflet (mappe) preso da CDN -->
   <style>
-    #map { height: 60vh; }
-    body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; }
-    .controls { padding: 10px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { padding: 6px; border-bottom: 1px solid #ddd; }
+    /* Stile inline semplice per la pagina */
+    #map { height: 60vh; } /* L'altezza della mappa è il 60% dell'altezza viewport */
+    body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; } /* Reset e font base */
+    .controls { padding: 10px; } /* Spaziatura per la barra dei controlli */
+    table { border-collapse: collapse; width: 100%; } /* Tabella a larghezza piena con bordi fusi */
+    th, td { padding: 6px; border-bottom: 1px solid #ddd; } /* Celle della tabella con bordo inferiore */
   </style>
 </head>
 <body>
+  <!-- Barra dei controlli sopra la mappa -->
   <div class="controls">
     <strong>Filtra per provincia:</strong>
     <input id="prov-input" placeholder="es. MI" />
+    <!-- Campo per inserire la provincia da filtrare (es. MI) -->
     <button onclick="filtraProvincia()">Filtra livelli</button>
+    <!-- Al click richiama la funzione JS che filtra per provincia -->
     <button onclick="caricaMappa()">Mostra tutti</button>
+    <!-- Ricarica la mappa e la lista completa, rimuovendo filtri -->
     &nbsp;&nbsp;
     <strong>Aggiorna prezzi (provincia):</strong>
+    <!-- Sezione per aggiornare i prezzi di tutti i distributori di una provincia -->
     <input id="prov-prez" placeholder="es. MI" style="width:70px;" />
+    <!-- Input per provincia a cui applicare i nuovi prezzi -->
     <input id="prezzo-b" placeholder="benzina" style="width:80px;" />
+    <!-- Input prezzo benzina (numero in formato decimale) -->
     <input id="prezzo-d" placeholder="diesel" style="width:80px;" />
+    <!-- Input prezzo diesel (numero in formato decimale) -->
     <button onclick="aggiornaPrezzi()">Cambia prezzi</button>
+    <!-- Applica i prezzi inseriti via chiamata API PUT -->
   </div>
+
+  <!-- Contenitore in cui Leaflet renderizza la mappa -->
   <div id="map"></div>
+
+  <!-- Titolo della sezione lista -->
   <h3 style="margin:10px">Elenco distributori</h3>
+
+  <!-- Contenitore in cui verrà iniettata la tabella HTML dei distributori -->
   <div id="lista"></div>
 
+  <!-- Script della libreria Leaflet (JS) da CDN -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
   <script>
+    // Inizializza la mappa Leaflet centrata sull'Italia (lat, lon) con zoom 6
     const map = L.map('map').setView([44.5, 10.5], 6);
+
+    // Aggiunge il layer delle tile OpenStreetMap con zoom massimo 19
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
     }).addTo(map);
+
+    // Array per tenere traccia dei marker attualmente presenti sulla mappa
     let markers = [];
 
+    // Funzione asincrona che carica i dati dei distributori per la mappa
     async function caricaMappa(){
+      // Richiesta GET all'endpoint che restituisce dati minimi per la mappa
       const res = await fetch('/api/distributori/map');
       const data = await res.json();
-      // pulisci markers
+
+      // Rimuove tutti i marker precedenti dalla mappa
       markers.forEach(m => map.removeLayer(m));
+      // Svuota l'array dei marker per ricostruirlo
       markers = [];
+
+      // Per ogni distributore crea un marker con popup informativo
       data.forEach(d => {
         const m = L.marker([d.lat, d.lon]).addTo(map)
           .bindPopup(`<b>${d.nome}</b><br>Provincia: ${d.provincia}<br>Benzina: ${d.prezzo_benzina} €/L<br>Diesel: ${d.prezzo_diesel} €/L`);
+        // Salva il riferimento del marker per poterlo rimuovere in seguito
         markers.push(m);
       });
-      // aggiorna lista
+
+      // Aggiorna anche l'elenco/tabella testuale sottostante
       caricaElenco();
     }
 
+    // Funzione che carica l'elenco completo dei distributori in una tabella HTML
     async function caricaElenco(){
+      // Richiesta GET all'endpoint completo dei distributori
       const res = await fetch('/api/distributori');
       const data = await res.json();
+
+      // Costruisce HTML della tabella con intestazioni
       const html = ['<table><tr><th>ID</th><th>Nome</th><th>Provincia</th><th>Indirizzo</th><th>Benzina</th><th>Diesel</th></tr>'];
+
+      // Aggiunge una riga per ogni distributore
       data.forEach(d => {
         html.push(`<tr><td>${d.id}</td><td>${d.nome}</td><td>${d.provincia}</td><td>${d.indirizzo}</td><td>${d.prezzo_benzina}</td><td>${d.prezzo_diesel}</td></tr>`);
       });
+
+      // Chiude la tabella
       html.push('</table>');
+
+      // Inietta l'HTML nel div con id 'lista'
       document.getElementById('lista').innerHTML = html.join('');
     }
 
+    // Filtra i livelli dei serbatoi per una provincia specifica
     async function filtraProvincia(){
+      // Legge e pulisce il valore dell'input (es. "MI")
       const prov = document.getElementById('prov-input').value.trim();
+      // Se vuoto, mostra un alert e termina
       if(!prov) return alert('Inserisci una provincia (es. MI)');
+
+      // Richiede i dati dei livelli per la provincia indicata
       const res = await fetch(`/api/distributori/provincia/${prov}/livelli`);
       const data = await res.json();
+
+      // Costruisce tabella con colonne per livelli e percentuali
       const html = ['<table><tr><th>ID</th><th>Nome</th><th>Benzina (L)</th><th>%</th><th>Diesel (L)</th><th>%</th></tr>'];
+
+      // Una riga per ogni distributore selezionato, con percentuali formattate a 1 decimale
       data.forEach(d => {
         html.push(`<tr><td>${d.id}</td><td>${d.nome}</td><td>${d.livello_benzina}</td><td>${d.percent_benzina.toFixed(1)}%</td><td>${d.livello_diesel}</td><td>${d.percent_diesel.toFixed(1)}%</td></tr>`);
       });
+
+      // Chiude tabella
       html.push('</table>');
+
+      // Mostra il risultato nella sezione lista
       document.getElementById('lista').innerHTML = html.join('');
     }
 
+    // Aggiorna i prezzi carburante per tutti i distributori di una provincia
     async function aggiornaPrezzi(){
+      // Legge la provincia dalla barra di aggiornamento prezzi
       const prov = document.getElementById('prov-prez').value.trim();
       if(!prov) return alert('Inserisci una provincia (es. MI)');
+
+      // Legge i valori dei prezzi inseriti (stringhe), poi li convertirà in numeri
       const b = document.getElementById('prezzo-b').value.trim();
       const d = document.getElementById('prezzo-d').value.trim();
+
+      // Prepara il body JSON solo con i campi valorizzati
       const body = {};
-      if(b) body.benzina = parseFloat(b);
-      if(d) body.diesel = parseFloat(d);
+      if(b) body.benzina = parseFloat(b); // Converte la stringa in numero (float)
+      if(d) body.diesel = parseFloat(d);  // Converte la stringa in numero (float)
+
+      // Se nessun prezzo è stato fornito, allerta e termina
       if(Object.keys(body).length===0) return alert('Inserisci almeno un prezzo');
+
+      // Esegue la chiamata PUT per cambiare i prezzi
       const res = await fetch(`/api/distributori/provincia/${prov}/prezzi`, {method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
+
+      // Se la risposta è OK, mostra gli ID aggiornati e ricarica mappa/lista
       if(res.ok){
         alert('Prezzi aggiornati per ID: ' + JSON.stringify(data.aggiornati));
         caricaMappa();
       } else {
+        // In caso di errore, mostra il payload restituito dall'API
         alert('Errore: ' + JSON.stringify(data));
       }
     }
 
-    // inizializza
+    // Chiamata iniziale: carica subito la mappa e la lista quando la pagina apre
     caricaMappa();
   </script>
 </body>
